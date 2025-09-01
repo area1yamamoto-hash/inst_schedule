@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instagram月間投稿スケジュール（共有版／自動フォールバック）</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f8fbf8;color:#2d3748;line-height:1.6;padding:20px}
+    .container{max-width:1200px;margin:0 auto}
+    .header{background:#fff;padding:24px;border-radius:12px;margin-bottom:20px;box-shadow:0 4px 12px rgba(0,0,0,.05);text-align:center}
+    h1{color:#1a365d;font-size:2em;margin-bottom:12px}
+    .month-year{display:flex;justify-content:center;align-items:center;gap:16px;margin-bottom:12px}
+    .month-year input,.month-year select{padding:8px 12px;border:2px solid #48bb78;border-radius:6px;font-size:1.05em;background:#fff}
+    .status{display:inline-block;margin-top:8px;padding:4px 10px;border-radius:999px;font-size:.8em;background:#edf2f7;color:#2d3748}
+    .status.ok{background:#c6f6d5}
+    .status.warn{background:#fed7d7}
+
+    .instructions{background:#fff;color:#203744;padding:20px 24px;border-radius:8px;margin-bottom:16px;border-left:4px solid #48bb78;line-height:1.8}
+    .instructions h3{margin-bottom:10px}
+    .instructions ul{margin-left:20px}
+    .instructions li{margin-bottom:6px}
+
+    .legend{display:flex;gap:16px;justify-content:center;margin:16px 0;flex-wrap:wrap}
+    .legend-item{display:flex;align-items:center;gap:8px;font-size:.9em}
+    .legend-color{width:16px;height:16px;border-radius:3px}
+
+    .controls{display:flex;gap:12px;justify-content:center;margin:16px 0;flex-wrap:wrap}
+    .btn{padding:10px 16px;border:none;border-radius:6px;cursor:pointer;font-weight:600;transition:all .2s}
+    .btn-primary{background:#48bb78;color:#fff}
+    .btn-primary:hover{background:#38a169}
+    .btn-secondary{background:#e2e8f0;color:#2d3748}
+    .btn-secondary:hover{background:#cbd5e0}
+
+    .schedule-container{background:#fff;padding:20px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,.05);margin-bottom:20px}
+    .schedule-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin:8px 0}
+    .day-header{background:#2d3748;color:#fff;padding:10px 8px;text-align:center;border-radius:6px;font-weight:600;font-size:.9em}
+    .day-cell{background:#f7fafc;padding:8px;border-radius:6px;border:2px solid #e2e8f0;min-height:110px;font-size:.85em;position:relative;cursor:pointer;transition:all .2s}
+    .day-cell:hover{border-color:#48bb78;background:#f0fff4}
+    .day-number{font-weight:600;color:#4a5568;margin-bottom:4px}
+    .post-content{background:#48bb78;color:#fff;padding:4px 6px;border-radius:4px;font-size:.8em;margin:2px 0;font-weight:500;word-break:break-word}
+    .post-content.sports{background:#e53e3e}
+    .post-content.culture{background:#3182ce}
+    .post-content.tourism{background:#d69e2e}
+    .post-content.company{background:#805ad5}
+    .post-content.story{background:#66cdaa}
+    .post-content.reel{background:#ffc0cb}
+
+    .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000}
+    .modal-content{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:24px;border-radius:12px;max-width:520px;width:92%}
+    .modal input,.modal select,.modal textarea{width:100%;padding:8px 12px;border:2px solid #e2e8f0;border-radius:6px;margin-bottom:12px;font-size:1em}
+    .modal textarea{min-height:80px;resize:vertical}
+    .modal-buttons{display:flex;gap:12px;justify-content:flex-end}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📅 Instagram月間投稿スケジュール（共有版）</h1>
+      <div class="month-year">
+        <select id="month" aria-label="月"></select>
+        <label for="month">月</label>
+        <input type="number" id="year" min="2024" max="2035" aria-label="年">
+        <label for="year">年</label>
+      </div>
+      <div id="modeStatus" class="status">初期化中…</div>
+    </div>
+
+    <div class="instructions">
+      <h3>📝 使い方</h3>
+      <ul>
+        <li><strong>日付クリック:</strong> 予定を追加・編集できます</li>
+        <li><strong>保存先:</strong> Firestore が使えない環境では自動で <u>ローカル保存</u> に切り替わります</li>
+        <li><strong>週2回投稿:</strong> 火曜（12:00）・金曜（17:00）を基本にしています</li>
+        <li><strong>リール動画:</strong> 月1～2回を目安に投稿</li>
+        <li><strong>ストーリーズ:</strong> 日常的なエンゲージメント向上に活用</li>
+      </ul>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-color" style="background:#e53e3e"></div><span>スポーツ</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#3182ce"></div><span>文化</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#d69e2e"></div><span>観光</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#805ad5"></div><span>企業</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#66cdaa"></div><span>ストーリーズ</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#ffc0cb"></div><span>リール動画</span></div>
+    </div>
+
+    <div class="controls">
+      <button class="btn btn-primary" onclick="generateSchedule()">📋 基本スケジュール生成</button>
+      <button class="btn btn-secondary" onclick="clearSchedule()">🗑️ この月をクリア</button>
+    </div>
+
+    <div class="schedule-container">
+      <div class="schedule-grid" id="calendar"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="editModal">
+    <div class="modal-content">
+      <h3>投稿予定編集</h3>
+      <input type="text" id="postTitle" placeholder="投稿タイトル" />
+      <select id="postCategory">
+        <option value="">カテゴリを選択</option>
+        <option value="sports">スポーツ</option>
+        <option value="culture">文化</option>
+        <option value="tourism">観光</option>
+        <option value="company">企業</option>
+        <option value="story">ストーリーズ</option>
+        <option value="reel">リール動画</option>
+      </select>
+      <textarea id="postNote" placeholder="メモ・詳細内容"></textarea>
+      <div class="modal-buttons">
+        <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="savePost()">保存</button>
+        <button class="btn" style="background:#e53e3e;color:#fff" onclick="deletePost()">削除</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBN1ZmXlVSgKY7qiQ0QWe_vbc2AfrEh14E",
+      authDomain: "inst-schedule.firebaseapp.com",
+      projectId: "inst-schedule",
+    };
+
+    const modeStatus = document.getElementById('modeStatus');
+    const hasFirebaseLib = typeof window.firebase !== 'undefined';
+    let useFirestore = false;
+    let db = null;
+
+    try {
+      if (hasFirebaseLib && firebaseConfig.projectId && !/YOUR_PROJECT_ID/.test(firebaseConfig.projectId) && firebaseConfig.apiKey && !/YOUR_API_KEY/.test(firebaseConfig.apiKey)) {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        useFirestore = true;
+        modeStatus.textContent = '保存先: Firestore（共有モード）';
+        modeStatus.classList.add('ok');
+      } else {
+        modeStatus.textContent = '保存先: ローカル（端末内のみ）';
+        modeStatus.classList.add('warn');
+      }
+    } catch (e) {
+      console.warn('Firebase初期化に失敗しました。ローカル保存に切替えます。', e);
+      useFirestore = false;
+      modeStatus.textContent = '保存先: ローカル（端末内のみ）';
+      modeStatus.classList.add('warn');
+    }
+
+    const LS_KEY = 'sns_shared_schedule_v1';
+    const STORAGE = useFirestore ? {
+      async loadAll(){
+        const data = {};
+        try{
+          const snapshot = await db.collection('schedules').get();
+          snapshot.forEach(doc => { data[doc.id] = doc.data().posts || []; });
+        }catch(err){
+          console.error('Firestore読み込み失敗。ローカルに切替え', err);
+          return LOCAL_STORAGE.loadAll();
+        }
+        return data;
+      },
+      async saveAll(obj){
+        const batch = db.batch();
+        Object.keys(obj).forEach(key=>{ batch.set(db.collection('schedules').doc(key), { posts: obj[key] }); });
+        await batch.commit();
+      },
+      async deleteKeys(keys){
+        const batch = db.batch();
+        keys.forEach(k=> batch.delete(db.collection('schedules').doc(k)) );
+        await batch.commit();
+      }
+    } : null;
+
+    const LOCAL_STORAGE = {
+      async loadAll(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||'{}'); }catch{return {}} },
+      async saveAll(obj){ localStorage.setItem(LS_KEY, JSON.stringify(obj)); },
+      async deleteKeys(keys){ const data = await this.loadAll(); keys.forEach(k=>delete data[k]); await this.saveAll(data); }
+    };
+
+    const Store = STORAGE || LOCAL_STORAGE;
+
+    let scheduleData = {};
+    let currentEditingDay = null;
+    let editingIndex = null;
+
+    function initMonthOptions(){
+      const monthSel = document.getElementById('month');
+      monthSel.innerHTML = '';
+      for(let m=1;m<=12;m++){
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        if(m === new Date().getMonth()+1) opt.selected = true;
+        monthSel.appendChild(opt);
+      }
+      document.getElementById('year').value = new Date().getFullYear();
+    }
+
+    function pad(n){ return String(n).padStart(2,'0'); }
+    function keyFromDate(date){ return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}`; }
+
+    function generateCalendar(){
+      const month = parseInt(document.getElementById('month').value,10);
+      const year  = parseInt(document.getElementById('year').value,10);
+      const calendar = document.getElementById('calendar');
+      calendar.innerHTML = '';
+
+      ['月','火','水','木','金','土','日'].forEach(d=>{
+        const h = document.createElement('div');
+        h.className = 'day-header'; h.textContent = d; calendar.appendChild(h);
+      });
+
+      const firstDay = new Date(year, month-1, 1);
+      const startDate = new Date(firstDay);
+      const offset = (firstDay.getDay() + 6) % 7;
+      startDate.setDate(startDate.getDate() - offset);
+
+      for(let i=0;i<42;i++){
+        const date = new Date(startDate);
+        date.setDate(startDate.getDate()+i);
+
+        const cell = document.createElement('div');
+        cell.className = 'day-cell';
+        if(date.getMonth() !== month-1) cell.style.opacity = '0.35';
+
+        const dayNumber = document.createElement('div');
+        dayNumber.className = 'day-number';
+        dayNumber.textContent = date.getDate();
+        cell.appendChild(dayNumber);
+
+        const k = keyFromDate(date);
+        (scheduleData[k]||[]).forEach((post, idx)=>{
+          const div = document.createElement('div');
+          div.className = `post-content ${post.category||''}`;
+          div.textContent = post.title || '(無題)';
+          div.title = post.note || '';
+          div.addEventListener('click', e=>{ e.stopPropagation(); editPost(date, idx); });
+          cell.appendChild(div);
+        });
+
+        cell.addEventListener('click', ()=> editPost(date));
+        calendar.appendChild(cell);
+      }
+    }
+
+    function editPost(date,index=null){
+      currentEditingDay=date;
+      editingIndex=index;
+      const k=keyFromDate(date);
+      const post=(index!==null && scheduleData[k])?scheduleData[k][index]:null;
+      document.getElementById('postTitle').value=post?post.title:'';
+      document.getElementById('postCategory').value=post?post.category:'';
+      document.getElementById('postNote').value=post?post.note:'';
+      document.getElementById('editModal').style.display='block';
+    }
+
+    function closeModal(){ document.getElementById('editModal').style.display='none'; currentEditingDay=null; editingIndex=null; }
+
+    async function savePost(){
+      if(!currentEditingDay) return;
+      const title=document.getElementById('postTitle').value.trim();
+      const category=document.getElementById('postCategory').value;
+      const note=document.getElementById('postNote').value.trim();
+      if(!title||!category){ alert('タイトルとカテゴリは必須です。'); return; }
+      const k=keyFromDate(currentEditingDay);
+      if(!scheduleData[k]) scheduleData[k]=[];
+      if(editingIndex!==null) scheduleData[k][editingIndex]={title,category,note};
+      else scheduleData[k].push({title,category,note});
+      try{ await Store.saveAll(scheduleData); }catch(err){ alert('保存に失敗しました。コンソールをご確認ください。'); console.error(err); }
+      generateCalendar();
+      closeModal();
+    }
+
+    async function deletePost(){
+      if(!currentEditingDay) return;
+      const k=keyFromDate(currentEditingDay);
+      if(editingIndex!==null && scheduleData[k]){
+        scheduleData[k].splice(editingIndex,1);
+        if(scheduleData[k].length===0) delete scheduleData[k];
+      }
+      try{ await Store.saveAll(scheduleData); }catch(err){ console.error(err); }
+      generateCalendar();
+      closeModal();
+    }
+
+    async function clearSchedule(){
+      const month=parseInt(document.getElementById('month').value,10);
+      const year=parseInt(document.getElementById('year').value,10);
+      const keys=Object.keys(scheduleData).filter(k=>{
+        const [yy,mm]=k.split('-').map(Number); return yy===year && mm===month;
+      });
+      keys.forEach(k=> delete scheduleData[k]);
+      try{
+        if(useFirestore) await STORAGE.deleteKeys(keys);
+        await Store.saveAll(scheduleData);
+      }catch(err){ console.error(err); }
+      generateCalendar();
+      alert(`${year}年${month}月のスケジュールを削除しました`);
+    }
+
+    async function generateSchedule(){
+      const month=parseInt(document.getElementById('month').value,10);
+      const year=parseInt(document.getElementById('year').value,10);
+      const lastDay=new Date(year,month,0).getDate();
+      const templates=[
+        {title:'ブレイヴキングス刈谷 応援',category:'sports',note:'定期：火曜12:00・金曜17:00'},
+        {title:'安城市歴史博物館 特別展',category:'culture',note:'定期：火曜12:00・金曜17:00'},
+        {title:'刈谷ハイウェイオアシス',category:'tourism',note:'定期：火曜12:00・金曜17:00'},
+        {title:'エリアワン地域貢献活動',category:'company',note:'定期：火曜12:00・金曜17:00'}
+      ];
+      let idx=0;
+      for(let d=1;d<=lastDay;d++){
+        const date=new Date(year,month-1,d);
+        const dow=date.getDay();
+        if(dow===2||dow===5){
+          const k=keyFromDate(date);
+          if(!scheduleData[k]) scheduleData[k]=[];
+          const tpl=templates[idx % templates.length];
+          scheduleData[k].push({title:tpl.title,category:tpl.category,note:tpl.note});
+          idx++;
+        }
+      }
+      try{ await Store.saveAll(scheduleData); }catch(err){ console.error(err); }
+      generateCalendar();
+      alert('この月の基本スケジュールを追加しました');
+    }
+
+    async function loadSchedule(){
+      try{ scheduleData=await Store.loadAll(); }catch(err){ console.error('読み込み失敗。空データで起動',err); scheduleData={}; }
+    }
+
+    window.addEventListener('DOMContentLoaded',async ()=>{
+      initMonthOptions();
+      await loadSchedule();
+      generateCalendar();
+      document.getElementById('month').addEventListener('change', generateCalendar);
+      document.getElementById('year').addEventListener('change', generateCalendar);
+    });
+
+    document.getElementById('editModal').addEventListener('click',(e)=>{ if(e.target.id==='editModal') closeModal(); });
+  </script>
+</body>
+</html>
